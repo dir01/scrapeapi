@@ -198,7 +198,7 @@ async def _run_job(request_id: str, req: ScrapeRequest):
         graph_config: Dict[str, Any] = {
             "llm": {
                 "model": "openai/gpt-4o-mini",
-                "temperature": 0
+                "temperature": 0.0
             },
             "headless": True,
             "verbose": True,

@@ -43,11 +43,11 @@ type ScrapeRequest struct {
 
 // LLMConfig represents LLM configuration
 type LLMConfig struct {
-	Model       string  `json:"model,omitempty"`
-	APIKey      string  `json:"api_key,omitempty"`
-	APIBase     string  `json:"api_base,omitempty"`
-	Temperature float64 `json:"temperature,omitempty"`
-	Provider    string  `json:"provider,omitempty"`
+	Model       string   `json:"model,omitempty"`
+	APIKey      string   `json:"api_key,omitempty"`
+	APIBase     string   `json:"api_base,omitempty"`
+	Temperature *float64 `json:"temperature,omitempty"`
+	Provider    string   `json:"provider,omitempty"`
 }
 
 // ScrapeResponse represents the API response
@@ -191,4 +191,8 @@ func Bool(b bool) *bool {
 
 func Int(i int) *int {
 	return &i
+}
+
+func Float64(f float64) *float64 {
+	return &f
 }

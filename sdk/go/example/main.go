@@ -41,7 +41,7 @@ func main() {
 		OutputSchema: schema,
 		LLM: &scrapeapi.LLMConfig{
 			Model:       "openai/gpt-4o-mini",
-			Temperature: 0,
+			Temperature: scrapeapi.Float64(0), // Use helper to ensure 0.0 is serialized
 		},
 		Headless:   true,
 		Verbose:    true,
