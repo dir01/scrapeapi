@@ -1,0 +1,10 @@
+.claude
+.git
+.gitignore
+.github
+.env.example
+Dockerfile
+docker-compose.yml
+README.md
+**/__pycache__/*
+

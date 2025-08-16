@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "scrapeapi"
+version = "1.0.0"
+description = "FastAPI service wrapping scrapegraph-ai for HTTP-based web scraping"
+requires-python = ">=3.11"
+authors = [
+    {name = "dir01"},
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "fastapi==0.111.0",
+    "uvicorn[standard]==0.30.1",
+    "scrapegraphai>=1.15.0,<2.0.0",
+    "pydantic>=2.6,<3",
+    "jsonschema>=4.21,<5",
+    "json-schema-to-pydantic",
+]
+
+[project.optional-dependencies]
+browser = ["playwright>=1.45.0"]
+
+[project.urls]
+Homepage = "https://github.com/dir01/scrapeapi"
+Repository = "https://github.com/dir01/scrapeapi"
+Issues = "https://github.com/dir01/scrapeapi/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.uv]
+dev-dependencies = []
