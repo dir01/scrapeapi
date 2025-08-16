@@ -1,5 +1,5 @@
 # Fast, small image with Chromium dependencies via Playwright
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -28,23 +28,9 @@ RUN --mount=type=cache,target=/opt/uv-cache \
 # Copy pyproject.toml for app dependencies
 COPY pyproject.toml .
 
-# Install remaining Python dependencies from pyproject.toml dependencies list
+# Install dependencies from pyproject.toml
 RUN --mount=type=cache,target=/opt/uv-cache \
-    uv pip install --system \
-    fastapi==0.111.0 \
-    "uvicorn[standard]==0.30.1" \
-    "scrapegraphai>=1.15.0,<2.0.0" \
-    "pydantic>=2.6,<3" \
-    "jsonschema>=4.21,<5" \
-    json-schema-to-pydantic \
-    "opentelemetry-api>=1.20.0" \
-    "opentelemetry-sdk>=1.20.0" \
-    "opentelemetry-instrumentation-fastapi>=0.41b0" \
-    "opentelemetry-instrumentation-httpx>=0.41b0" \
-    "opentelemetry-instrumentation-asyncio>=0.41b0" \
-    "opentelemetry-exporter-otlp>=1.20.0" \
-    "opentelemetry-exporter-jaeger>=1.20.0" \
-    "deprecated>=1.2.0"
+    uv pip install --system -e .
 
 # Copy application code last for better cache utilization
 COPY app ./app
