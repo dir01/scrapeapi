@@ -1,36 +1,57 @@
-# ScrapeAPI - scrapegraph-ai HTTP API (FastAPI + Docker)
+# ScrapeAPI
 
-A tiny **FastAPI** service that wraps the open‑source **scrapegraph-ai** graphs so you can call them from **Go** (or anything HTTP), passing **prompt**, **schema**, sources, and runtime options. Includes job-style start/poll endpoints, optional API key auth, and Playwright/Chromium for JS pages.
+A FastAPI service that wraps [scrapegraph-ai](https://github.com/VinciGit00/Scrapegraph-ai) for HTTP-based web scraping with AI-powered structured data extraction.
 
-> Supports: **SmartScraperGraph** (single page), **SmartScraperMultiGraph** (many pages), and **SearchGraph** (web discovery). Schema can be provided as a **Pydantic-like JSON example**, a **JSON Schema object**, or omitted.
+## Features
+
+- 🤖 **AI-Powered Extraction**: Uses LLMs to understand and extract structured data from web pages
+- 📋 **JSON Schema Support**: Define output structure with JSON Schema for type-safe extraction
+- 🌐 **Multiple Graph Types**: Smart scraper, multi-source scraper, and search-based scraping
+- 🎯 **Browser Automation**: Handles dynamic content with Playwright/browser automation
+- 📊 **OpenTelemetry Observability**: Comprehensive tracing and metrics for monitoring
+- 🔧 **Go SDK**: Type-safe Go client library with automatic schema generation
+- 🐳 **Container Ready**: Docker support for easy deployment
+
+> Supports: **SmartScraperGraph** (single page), **SmartScraperMultiGraph** (many pages), and **SearchGraph** (web discovery). Schema can be provided as a **JSON Schema object** with automatic Pydantic conversion.
 
 ## Project Structure
 
 - `app/main.py` - FastAPI service with scraping endpoints
+- `app/telemetry.py` - OpenTelemetry configuration and instrumentation
+- `sdk/go/` - Go client library with type-safe schema support
 - `Dockerfile` - Container configuration with Playwright/Chromium
 - `.env.example` - Environment variables template
 
----
+## Quick Start
 
-## Build & Run
+### Using Docker
 
 ```bash
-# 1) Build
+# Clone and build
+git clone <repo-url>
+cd scrapeapi
 docker build -t scrapeapi .
 
-# 2) Run (with OpenAI key for example)
-docker run -p 8080:8080 \
-  -e OPENAI_API_KEY=sk-... \
-  scrapeapi
+# Run with OpenAI API key
+docker run -p 8080:8080 -e OPENAI_API_KEY=sk-your-key scrapeapi
+
+# Test the API
+curl http://localhost:8080/v1/health
 ```
 
-Health check:
+### Local Development
 
 ```bash
-curl -s http://localhost:8080/v1/health
-```
+# Install dependencies
+uv install
 
----
+# Set up environment
+cp .env.example .env
+# Edit .env with your API keys
+
+# Run the service
+uv run app/main.py
+```
 
 ## API
 
