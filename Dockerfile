@@ -35,7 +35,16 @@ RUN --mount=type=cache,target=/opt/uv-cache \
     "uvicorn[standard]==0.30.1" \
     "scrapegraphai>=1.15.0,<2.0.0" \
     "pydantic>=2.6,<3" \
-    "jsonschema>=4.21,<5"
+    "jsonschema>=4.21,<5" \
+    json-schema-to-pydantic \
+    "opentelemetry-api>=1.20.0" \
+    "opentelemetry-sdk>=1.20.0" \
+    "opentelemetry-instrumentation-fastapi>=0.41b0" \
+    "opentelemetry-instrumentation-httpx>=0.41b0" \
+    "opentelemetry-instrumentation-asyncio>=0.41b0" \
+    "opentelemetry-exporter-otlp>=1.20.0" \
+    "opentelemetry-exporter-jaeger>=1.20.0" \
+    "deprecated>=1.2.0"
 
 # Copy application code last for better cache utilization
 COPY app ./app

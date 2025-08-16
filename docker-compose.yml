@@ -1,20 +1,26 @@
-version: '3.8'
-
 services:
   scrapeapi:
     build: .
     ports:
       - "8080:8080"
     environment:
+      # OpenTelemetry configuration
+      - OTEL_ENABLED=${OTEL_ENABLED:-true}
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-scrapeapi}
+      - OTEL_ENVIRONMENT=${OTEL_ENVIRONMENT:-production}
+      - OTEL_EXPORTER_TYPE=${OTEL_EXPORTER_TYPE:-console}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_EXPORTER_JAEGER_ENDPOINT=${OTEL_EXPORTER_JAEGER_ENDPOINT:-}
+      
       # LLM provider API keys (passed from shell environment)
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
-      - GROQ_API_KEY=${GROQ_API_KEY}
-      - HUGGINGFACE_HUB_TOKEN=${HUGGINGFACE_HUB_TOKEN}
-      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
-      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - HUGGINGFACE_HUB_TOKEN=${HUGGINGFACE_HUB_TOKEN:-}
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-}
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
     restart: unless-stopped
     healthcheck:
