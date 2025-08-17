@@ -21,8 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip install uv
 
 # Install Playwright and Chromium early for better layer caching
-RUN --mount=type=cache,target=/opt/uv-cache \
-    uv pip install --system "playwright>=1.45.0" && \
+RUN uv pip install --system "playwright>=1.45.0" && \
     python -m playwright install chromium
 
 # Copy pyproject.toml for app dependencies
