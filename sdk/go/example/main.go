@@ -10,6 +10,7 @@ import (
 	scrapeapi "github.com/dir01/scrapeapi/sdk/go"
 	jsonschema "github.com/invopop/jsonschema"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/trace"
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
@@ -29,58 +30,6 @@ type ParsedJobsResponse struct {
 	Jobs []ParsedJob `json:"jobs" jsonschema:"jobs"`
 }
 
-// generateCustomTraceID creates a trace ID with first 5 digits as "55555"
-func generateCustomTraceID() oteltrace.TraceID {
-	// Create 16 bytes for trace ID
-	bytes := make([]byte, 16)
-	
-	// Fill with random data
-	if _, err := rand.Read(bytes); err != nil {
-		log.Fatalf("Failed to generate random bytes: %v", err)
-	}
-	
-	// Set first 5 hex digits to "55555" (first 2.5 bytes)
-	// 0x55, 0x55, 0x50 gives us "555550..." which starts with "55555"
-	bytes[0] = 0x55
-	bytes[1] = 0x55
-	bytes[2] = 0x50 // This makes the 5th hex digit a "5"
-	
-	var traceID oteltrace.TraceID
-	copy(traceID[:], bytes)
-	return traceID
-}
-
-// customIDGenerator generates trace IDs starting with "55555"
-type customIDGenerator struct{}
-
-func (g customIDGenerator) NewIDs(ctx context.Context) (oteltrace.TraceID, oteltrace.SpanID) {
-	return generateCustomTraceID(), g.NewSpanID(ctx, oteltrace.TraceID{})
-}
-
-func (g customIDGenerator) NewSpanID(ctx context.Context, traceID oteltrace.TraceID) oteltrace.SpanID {
-	var spanID oteltrace.SpanID
-	_, _ = rand.Read(spanID[:])
-	return spanID
-}
-
-// initOpenTelemetry initializes OpenTelemetry without console output
-func initOpenTelemetry() func() {
-	// Create a trace provider with custom ID generator
-	tp := trace.NewTracerProvider(
-		trace.WithIDGenerator(customIDGenerator{}),
-	)
-
-	// Set the global trace provider
-	otel.SetTracerProvider(tp)
-
-	// Return a cleanup function
-	return func() {
-		if err := tp.Shutdown(context.Background()); err != nil {
-			log.Printf("Error shutting down tracer provider: %v", err)
-		}
-	}
-}
-
 func main() {
 	// Initialize OpenTelemetry with custom ID generator
 	cleanup := initOpenTelemetry()
@@ -88,17 +37,19 @@ func main() {
 
 	// Create a tracer
 	tracer := otel.Tracer("scrapeapi-example")
-	
+
 	// Start a root span - the custom ID generator will create trace ID starting with "55555"
 	ctx, rootSpan := tracer.Start(context.Background(), "scraping-session")
 	defer rootSpan.End()
 
 	fmt.Printf("🔍 EXAMPLE: Starting scraping session\n")
 	fmt.Printf("🔍 EXAMPLE: Trace ID: %s (should start with 55555)\n", rootSpan.SpanContext().TraceID().String())
+	fmt.Printf("🔍 EXAMPLE: Root span valid: %v\n", rootSpan.SpanContext().IsValid())
+	fmt.Printf("🔍 EXAMPLE: Root span sampled: %v\n", rootSpan.SpanContext().IsSampled())
 
 	// Create client (now with automatic OpenTelemetry instrumentation)
-	client := scrapeapi.NewClient("http://scrapeapi.cluster-int.dir01.org")
-	// client := scrapeapi.NewClient("http://127.0.0.1:8080")
+	// client := scrapeapi.NewClient("http://scrapeapi.cluster-int.dir01.org")
+	client := scrapeapi.NewClient("http://127.0.0.1:8080")
 
 	// Example 1: Smart scraper with JSON Schema
 	schema := jsonschema.Reflect(&ParsedJobsResponse{})
@@ -163,5 +114,61 @@ func main() {
 		}
 
 		time.Sleep(2 * time.Second)
+	}
+}
+
+// generateCustomTraceID creates a trace ID with first 5 digits as "55555"
+func generateCustomTraceID() oteltrace.TraceID {
+	// Create 16 bytes for trace ID
+	bytes := make([]byte, 16)
+
+	// Fill with random data
+	if _, err := rand.Read(bytes); err != nil {
+		log.Fatalf("Failed to generate random bytes: %v", err)
+	}
+
+	// Set first 5 hex digits to "55555" (first 2.5 bytes)
+	// 0x55, 0x55, 0x50 gives us "555550..." which starts with "55555"
+	bytes[0] = 0x55
+	bytes[1] = 0x55
+	bytes[2] = 0x50 // This makes the 5th hex digit a "5"
+
+	var traceID oteltrace.TraceID
+	copy(traceID[:], bytes)
+	return traceID
+}
+
+// customIDGenerator generates trace IDs starting with "55555"
+type customIDGenerator struct{}
+
+func (g customIDGenerator) NewIDs(ctx context.Context) (oteltrace.TraceID, oteltrace.SpanID) {
+	return generateCustomTraceID(), g.NewSpanID(ctx, oteltrace.TraceID{})
+}
+
+func (g customIDGenerator) NewSpanID(ctx context.Context, traceID oteltrace.TraceID) oteltrace.SpanID {
+	var spanID oteltrace.SpanID
+	_, _ = rand.Read(spanID[:])
+	return spanID
+}
+
+// initOpenTelemetry initializes OpenTelemetry without console output
+func initOpenTelemetry() func() {
+	// Create a trace provider with custom ID generator and sampling
+	tp := trace.NewTracerProvider(
+		trace.WithIDGenerator(customIDGenerator{}),
+		trace.WithSampler(trace.AlwaysSample()), // Ensure all traces are sampled
+	)
+
+	// Set the global trace provider
+	otel.SetTracerProvider(tp)
+	
+	// Set up propagation
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+
+	// Return a cleanup function
+	return func() {
+		if err := tp.Shutdown(context.Background()); err != nil {
+			log.Printf("Error shutting down tracer provider: %v", err)
+		}
 	}
 }

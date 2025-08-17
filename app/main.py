@@ -3,10 +3,11 @@ import json
 import tempfile
 import uuid
 import asyncio
+import contextvars
 import time
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -20,6 +21,8 @@ import jsonschema  # type: ignore
 from json_schema_to_pydantic import create_model
 
 # OpenTelemetry
+from opentelemetry import trace, propagate
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 from .telemetry import initialize_telemetry, get_tracer, get_meter
 from .telemetry import (
     request_counter,
@@ -121,19 +124,61 @@ async def metrics():
 
 
 @app.post("/v1/scrape", response_model=StartResponse)
-async def start_scrape(req: ScrapeRequest):
+async def start_scrape(req: ScrapeRequest, request: Request):
     tracer = get_tracer()
     start_time = time.time()
 
-    with tracer.start_as_current_span("scrape_request") as span:
-        span.set_attribute("graph.type", req.graph)
-        span.set_attribute("request.has_schema", req.output_schema is not None)
-        if req.website_url:
-            span.set_attribute("target.url", req.website_url)
+    # Debug: Extract trace context from headers manually
+    headers = dict(request.headers)
+    print(f"🔧 PYTHON start_scrape: All incoming headers:")
+    for key, value in headers.items():
+        if "trace" in key.lower() or "span" in key.lower():
+            print(f"  {key}: {value}")
+    
+    # Try to extract trace context manually if automatic extraction failed
+    propagator = TraceContextTextMapPropagator()
+    extracted_context = propagator.extract(headers)
+    
+    # Debug: Check what was extracted
+    from opentelemetry.trace import get_current_span
+    extracted_span = get_current_span(extracted_context)
+    span_context = extracted_span.get_span_context()
+    print(f"🔧 PYTHON start_scrape: Extracted span context valid: {span_context.is_valid}")
+    if span_context.is_valid:
+        print(f"🔧 PYTHON start_scrape: Extracted trace ID: {span_context.trace_id}")
+        print(f"🔧 PYTHON start_scrape: Extracted span ID: {span_context.span_id}")
+    else:
+        print(f"🔧 PYTHON start_scrape: No valid span context extracted from headers")
+    
+    # Use the proper OpenTelemetry context attachment pattern
+    if span_context.is_valid:
+        # Attach the extracted context, then create span normally
+        from opentelemetry import context as otel_context
+        token = otel_context.attach(extracted_context)
+    else:
+        token = None
+    
+    try:
+        with tracer.start_as_current_span("scrape_request") as span:
+            span.set_attribute("graph.type", req.graph)
+            span.set_attribute("request.has_schema", req.output_schema is not None)
+            if req.website_url:
+                span.set_attribute("target.url", req.website_url)
 
-        print(f"🔍 Received request: {req}")
+            # Debug: Log trace ID propagation
+            print(f"🔧 PYTHON start_scrape: New span trace ID: {span.get_span_context().trace_id}")
+            print(f"🔧 PYTHON start_scrape: New span ID: {span.get_span_context().span_id}")
+            print(f"🔧 PYTHON start_scrape: New span valid: {span.get_span_context().is_valid}")
+            
+            current_span = trace.get_current_span()
+            current_span_context = current_span.get_span_context()
+            print(f"🔧 PYTHON start_scrape: Current trace ID: {current_span_context.trace_id}")
+            print(f"🔧 PYTHON start_scrape: Current span ID: {current_span_context.span_id}")
+            print(f"🔧 PYTHON start_scrape: Current span valid: {current_span_context.is_valid}")
 
-        # Validate JSON Schema if provided
+            print(f"🔍 Received request: {req}")
+
+            # Validate JSON Schema if provided
         if req.output_schema is not None:
             if isinstance(req.output_schema, dict) and (
                 "type" in req.output_schema or "$schema" in req.output_schema
@@ -230,14 +275,22 @@ async def start_scrape(req: ScrapeRequest):
             if queue_size_gauge:
                 queue_size_gauge.add(1)
 
-        # Record request metrics
-        if request_counter:
-            request_counter.add(1, {"graph": req.graph, "status": "queued"})
+            # Record request metrics
+            if request_counter:
+                request_counter.add(1, {"graph": req.graph, "status": "queued"})
 
-        # Run in background
-        asyncio.create_task(_run_job(request_id, req))
+            # Debug: Check if we have context before creating task
+            print(f"🔧 PYTHON start_scrape: Creating background task, checking context...")
+            
+            # Run in background - asyncio should propagate context automatically
+            asyncio.create_task(_run_job(request_id, req))
 
-        return StartResponse(**job)
+            return StartResponse(**job)
+    finally:
+        # Detach the context if it was attached
+        if token is not None:
+            from opentelemetry import context as otel_context
+            otel_context.detach(token)
 
 
 @app.get("/v1/scrape/{request_id}", response_model=PollResponse)
@@ -268,6 +321,13 @@ async def smartscraper_poll_alias(request_id: str):
 async def _run_job(request_id: str, req: ScrapeRequest):
     tracer = get_tracer()
     job_start_time = time.time()
+
+    # Debug: Log trace ID in background job
+    current_span = trace.get_current_span()
+    current_span_context = current_span.get_span_context()
+    print(f"🔧 PYTHON _run_job: Current trace ID: {current_span_context.trace_id}")
+    print(f"🔧 PYTHON _run_job: Current span ID: {current_span_context.span_id}")
+    print(f"🔧 PYTHON _run_job: Current span valid: {current_span_context.is_valid}")
 
     with tracer.start_as_current_span("scrape_job_execution") as job_span:
         job_span.set_attribute("job.request_id", request_id)
@@ -529,7 +589,20 @@ def _build_graph(req: ScrapeRequest, graph_config: Dict[str, Any]):
 
 
 async def _run_with_timeout(graph_obj, timeout_sec: Optional[int]):
+    # Debug: Log trace ID before thread execution
+    current_span = trace.get_current_span()
+    current_span_context = current_span.get_span_context()
+    print(f"🔧 PYTHON _run_with_timeout: Current trace ID: {current_span_context.trace_id}")
+    print(f"🔧 PYTHON _run_with_timeout: Current span valid: {current_span_context.is_valid}")
+    
+    # Capture current context for thread execution
+    current_context = contextvars.copy_context()
+    
+    def run_graph_with_context():
+        """Run graph within the captured context to preserve tracing."""
+        return current_context.run(graph_obj.run)
+    
     loop = asyncio.get_event_loop()
     return await asyncio.wait_for(
-        loop.run_in_executor(None, graph_obj.run), timeout=timeout_sec or 180
+        loop.run_in_executor(None, run_graph_with_context), timeout=timeout_sec or 180
     )

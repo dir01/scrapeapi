@@ -190,8 +190,14 @@ def server_request_hook(span: trace.Span, scope: dict) -> None:
         if "path" in scope:
             span.set_attribute("http.route", scope["path"])
 
-        # Add request size if available
+        # Debug: Log incoming headers
         headers = dict(scope.get("headers", []))
+        print(f"🔧 PYTHON server_request_hook: Incoming headers:")
+        for key, value in headers.items():
+            if b"trace" in key.lower() or b"span" in key.lower():
+                print(f"  {key.decode('utf-8', errors='ignore')}: {value.decode('utf-8', errors='ignore')}")
+        
+        # Add request size if available
         content_length = headers.get(b"content-length")
         if content_length:
             span.set_attribute("http.request.size", int(content_length))

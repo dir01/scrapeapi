@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -82,6 +84,7 @@ func (c *Client) StartScrape(ctx context.Context, req *ScrapeRequest) (*ScrapeRe
 	log.Printf("🔧 SDK StartScrape: Incoming context span valid: %v", incomingSpan.SpanContext().IsValid())
 	if incomingSpan.SpanContext().IsValid() {
 		log.Printf("🔧 SDK StartScrape: Incoming trace ID: %s", incomingSpan.SpanContext().TraceID().String())
+		log.Printf("🔧 SDK StartScrape: Incoming span sampled: %v", incomingSpan.SpanContext().IsSampled())
 	}
 
 	// Create a span for this operation
@@ -90,6 +93,8 @@ func (c *Client) StartScrape(ctx context.Context, req *ScrapeRequest) (*ScrapeRe
 	defer span.End()
 	
 	log.Printf("🔧 SDK StartScrape: Created span trace ID: %s", span.SpanContext().TraceID().String())
+	log.Printf("🔧 SDK StartScrape: Created span valid: %v", span.SpanContext().IsValid())
+	log.Printf("🔧 SDK StartScrape: Created span sampled: %v", span.SpanContext().IsSampled())
 
 	jsonData, err := json.Marshal(req)
 	if err != nil {
@@ -101,6 +106,16 @@ func (c *Client) StartScrape(ctx context.Context, req *ScrapeRequest) (*ScrapeRe
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	
+	// Manual trace context injection as fallback (since otelhttp isn't working)
+	propagator := propagation.TraceContext{}
+	propagator.Inject(ctx, propagation.HeaderCarrier(httpReq.Header))
+	
+	// Debug: Log ALL outgoing headers to see what was injected
+	log.Printf("🔧 SDK StartScrape: ALL outgoing headers after injection:")
+	for key, values := range httpReq.Header {
+		log.Printf("  %s: %s", key, strings.Join(values, ", "))
+	}
 
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
