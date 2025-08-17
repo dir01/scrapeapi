@@ -5,29 +5,35 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Client represents a ScrapeAPI client
 type Client struct {
 	BaseURL    string
 	HTTPClient *http.Client
-	Headers    map[string]string
+	tracer     trace.Tracer
 }
 
-// NewClient creates a new ScrapeAPI client
+// NewClient creates a new ScrapeAPI client with OpenTelemetry instrumentation
 func NewClient(baseURL string) *Client {
+	// Create HTTP client with OpenTelemetry transport instrumentation
+	httpClient := &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
+	}
+	
 	return &Client{
 		BaseURL:    baseURL,
-		HTTPClient: &http.Client{Timeout: 30 * time.Second},
-		Headers:    make(map[string]string),
+		HTTPClient: httpClient,
+		tracer:     otel.Tracer("scrapeapi-sdk"),
 	}
-}
-
-// SetHeader sets a custom header for all requests
-func (c *Client) SetHeader(key, value string) {
-	c.Headers[key] = value
 }
 
 // ScrapeRequest represents a scraping request
@@ -69,8 +75,22 @@ type ScrapeResponse struct {
 	Error      string      `json:"error,omitempty"`
 }
 
-// StartScrape initiates a scraping job
+// StartScrape initiates a scraping job with tracing
 func (c *Client) StartScrape(ctx context.Context, req *ScrapeRequest) (*ScrapeResponse, error) {
+	// Check incoming context
+	incomingSpan := trace.SpanFromContext(ctx)
+	log.Printf("🔧 SDK StartScrape: Incoming context span valid: %v", incomingSpan.SpanContext().IsValid())
+	if incomingSpan.SpanContext().IsValid() {
+		log.Printf("🔧 SDK StartScrape: Incoming trace ID: %s", incomingSpan.SpanContext().TraceID().String())
+	}
+
+	// Create a span for this operation
+	// If there's no existing span in context, this creates a new root span
+	ctx, span := c.tracer.Start(ctx, "scrapeapi.StartScrape")
+	defer span.End()
+	
+	log.Printf("🔧 SDK StartScrape: Created span trace ID: %s", span.SpanContext().TraceID().String())
+
 	jsonData, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
@@ -81,11 +101,6 @@ func (c *Client) StartScrape(ctx context.Context, req *ScrapeRequest) (*ScrapeRe
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	
-	// Add custom headers
-	for key, value := range c.Headers {
-		httpReq.Header.Set(key, value)
-	}
 
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
@@ -105,17 +120,17 @@ func (c *Client) StartScrape(ctx context.Context, req *ScrapeRequest) (*ScrapeRe
 	return &scrapeResp, nil
 }
 
-// GetScrape polls for the status of a scraping job
+// GetScrape polls for the status of a scraping job with tracing
 func (c *Client) GetScrape(ctx context.Context, requestID string) (*ScrapeResponse, error) {
+	// Create a span for this operation
+	// If there's no existing span in context, this creates a new root span
+	ctx, span := c.tracer.Start(ctx, "scrapeapi.GetScrape")
+	defer span.End()
+
 	httpReq, err := http.NewRequestWithContext(ctx, "GET", c.BaseURL+"/v1/scrape/"+requestID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	
-	// Add custom headers
-	for key, value := range c.Headers {
-		httpReq.Header.Set(key, value)
-	}
 
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
@@ -135,8 +150,13 @@ func (c *Client) GetScrape(ctx context.Context, requestID string) (*ScrapeRespon
 	return &scrapeResp, nil
 }
 
-// WaitForCompletion waits for a scraping job to complete with polling
+// WaitForCompletion waits for a scraping job to complete with polling and tracing
 func (c *Client) WaitForCompletion(ctx context.Context, requestID string, pollInterval time.Duration) (*ScrapeResponse, error) {
+	// Create a span for this operation
+	// If there's no existing span in context, this creates a new root span
+	ctx, span := c.tracer.Start(ctx, "scrapeapi.WaitForCompletion")
+	defer span.End()
+
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
@@ -179,8 +199,22 @@ func WithPollInterval(interval time.Duration) WaitOption {
 	}
 }
 
-// ScrapeAndWait is a convenience method that starts a scrape job and waits for completion
+// ScrapeAndWait is a convenience method that starts a scrape job and waits for completion with tracing
 func (c *Client) ScrapeAndWait(ctx context.Context, req *ScrapeRequest, opts ...WaitOption) (*ScrapeResponse, error) {
+	// Check incoming context
+	incomingSpan := trace.SpanFromContext(ctx)
+	log.Printf("🔧 SDK ScrapeAndWait: Incoming context span valid: %v", incomingSpan.SpanContext().IsValid())
+	if incomingSpan.SpanContext().IsValid() {
+		log.Printf("🔧 SDK ScrapeAndWait: Incoming trace ID: %s", incomingSpan.SpanContext().TraceID().String())
+	}
+
+	// Create a span for this operation
+	// If there's no existing span in context, this creates a new root span
+	ctx, span := c.tracer.Start(ctx, "scrapeapi.ScrapeAndWait")
+	defer span.End()
+	
+	log.Printf("🔧 SDK ScrapeAndWait: Created span trace ID: %s", span.SpanContext().TraceID().String())
+
 	cfg := &waitConfig{
 		pollInterval: 2 * time.Second, // default
 	}

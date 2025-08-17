@@ -3,13 +3,15 @@ package main
 import (
 	"context"
 	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"log"
 	"time"
 
 	scrapeapi "github.com/dir01/scrapeapi/sdk/go"
 	jsonschema "github.com/invopop/jsonschema"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/sdk/trace"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 type ParsedJob struct {
@@ -27,28 +29,76 @@ type ParsedJobsResponse struct {
 	Jobs []ParsedJob `json:"jobs" jsonschema:"jobs"`
 }
 
-// generateTraceID creates a random 32-character hex trace ID following W3C trace context format
-func generateTraceID() string {
-	bytes := make([]byte, 16) // 16 bytes = 32 hex characters
+// generateCustomTraceID creates a trace ID with first 5 digits as "55555"
+func generateCustomTraceID() oteltrace.TraceID {
+	// Create 16 bytes for trace ID
+	bytes := make([]byte, 16)
+	
+	// Fill with random data
 	if _, err := rand.Read(bytes); err != nil {
-		log.Printf("Warning: failed to generate random trace ID: %v", err)
-		// Fallback to timestamp-based ID
-		return fmt.Sprintf("%032d", time.Now().UnixNano())
+		log.Fatalf("Failed to generate random bytes: %v", err)
 	}
-	return hex.EncodeToString(bytes)
+	
+	// Set first 5 hex digits to "55555" (first 2.5 bytes)
+	// 0x55, 0x55, 0x50 gives us "555550..." which starts with "55555"
+	bytes[0] = 0x55
+	bytes[1] = 0x55
+	bytes[2] = 0x50 // This makes the 5th hex digit a "5"
+	
+	var traceID oteltrace.TraceID
+	copy(traceID[:], bytes)
+	return traceID
+}
+
+// customIDGenerator generates trace IDs starting with "55555"
+type customIDGenerator struct{}
+
+func (g customIDGenerator) NewIDs(ctx context.Context) (oteltrace.TraceID, oteltrace.SpanID) {
+	return generateCustomTraceID(), g.NewSpanID(ctx, oteltrace.TraceID{})
+}
+
+func (g customIDGenerator) NewSpanID(ctx context.Context, traceID oteltrace.TraceID) oteltrace.SpanID {
+	var spanID oteltrace.SpanID
+	_, _ = rand.Read(spanID[:])
+	return spanID
+}
+
+// initOpenTelemetry initializes OpenTelemetry without console output
+func initOpenTelemetry() func() {
+	// Create a trace provider with custom ID generator
+	tp := trace.NewTracerProvider(
+		trace.WithIDGenerator(customIDGenerator{}),
+	)
+
+	// Set the global trace provider
+	otel.SetTracerProvider(tp)
+
+	// Return a cleanup function
+	return func() {
+		if err := tp.Shutdown(context.Background()); err != nil {
+			log.Printf("Error shutting down tracer provider: %v", err)
+		}
+	}
 }
 
 func main() {
-	// Generate a stable trace ID for this session - randomized only once at startup
-	traceID := generateTraceID()
-	fmt.Printf("🔍 Session trace ID: %s\n", traceID)
+	// Initialize OpenTelemetry with custom ID generator
+	cleanup := initOpenTelemetry()
+	defer cleanup()
 
-	// Create client
+	// Create a tracer
+	tracer := otel.Tracer("scrapeapi-example")
+	
+	// Start a root span - the custom ID generator will create trace ID starting with "55555"
+	ctx, rootSpan := tracer.Start(context.Background(), "scraping-session")
+	defer rootSpan.End()
+
+	fmt.Printf("🔍 EXAMPLE: Starting scraping session\n")
+	fmt.Printf("🔍 EXAMPLE: Trace ID: %s (should start with 55555)\n", rootSpan.SpanContext().TraceID().String())
+
+	// Create client (now with automatic OpenTelemetry instrumentation)
 	client := scrapeapi.NewClient("http://scrapeapi.cluster-int.dir01.org")
 	// client := scrapeapi.NewClient("http://127.0.0.1:8080")
-	
-	// Set trace ID header for all requests in this session
-	client.SetHeader("X-Trace-ID", traceID)
 
 	// Example 1: Smart scraper with JSON Schema
 	schema := jsonschema.Reflect(&ParsedJobsResponse{})
@@ -76,8 +126,8 @@ func main() {
 
 	fmt.Println("🚀 Starting scrape job...")
 
-	// Method 1: Start and wait
-	result, err := client.ScrapeAndWait(context.Background(), req, scrapeapi.WithPollInterval(2*time.Second))
+	// Method 1: Start and wait (using traced context)
+	result, err := client.ScrapeAndWait(ctx, req, scrapeapi.WithPollInterval(2*time.Second))
 	if err != nil {
 		log.Fatalf("Scrape failed: %v", err)
 	}
@@ -89,7 +139,7 @@ func main() {
 	// Method 2: Manual polling (alternative approach)
 	fmt.Println("\n🔄 Alternative: Manual polling example...")
 
-	startResp, err := client.StartScrape(context.Background(), req)
+	startResp, err := client.StartScrape(ctx, req)
 	if err != nil {
 		log.Fatalf("Failed to start scrape: %v", err)
 	}
@@ -98,7 +148,7 @@ func main() {
 
 	// Poll until completion
 	for {
-		pollResp, err := client.GetScrape(context.Background(), startResp.RequestID)
+		pollResp, err := client.GetScrape(ctx, startResp.RequestID)
 		if err != nil {
 			log.Fatalf("Failed to poll: %v", err)
 		}
