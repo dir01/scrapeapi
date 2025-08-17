@@ -22,8 +22,12 @@ from json_schema_to_pydantic import create_model
 # OpenTelemetry
 from .telemetry import initialize_telemetry, get_tracer, get_meter
 from .telemetry import (
-    request_counter, request_duration, scraping_success_counter,
-    scraping_duration, schema_validation_counter, queue_size_gauge
+    request_counter,
+    request_duration,
+    scraping_success_counter,
+    scraping_duration,
+    schema_validation_counter,
+    queue_size_gauge,
 )
 
 # ----------------------------
@@ -113,22 +117,25 @@ async def health():
 async def start_scrape(req: ScrapeRequest):
     tracer = get_tracer()
     start_time = time.time()
-    
+
     with tracer.start_as_current_span("scrape_request") as span:
         span.set_attribute("graph.type", req.graph)
         span.set_attribute("request.has_schema", req.output_schema is not None)
         if req.website_url:
             span.set_attribute("target.url", req.website_url)
-        
-        print(f"🔍 Received request with schema: {req.output_schema}")
-        print(f"🔍 Schema type: {type(req.output_schema)}")
-        
+
+        print(f"🔍 Received request: {req}")
+
         # Validate JSON Schema if provided
         if req.output_schema is not None:
-            if isinstance(req.output_schema, dict) and ("type" in req.output_schema or "$schema" in req.output_schema):
+            if isinstance(req.output_schema, dict) and (
+                "type" in req.output_schema or "$schema" in req.output_schema
+            ):
                 with tracer.start_as_current_span("schema_validation") as schema_span:
-                    schema_span.set_attribute("schema.type", req.output_schema.get("type", "unknown"))
-                    
+                    schema_span.set_attribute(
+                        "schema.type", req.output_schema.get("type", "unknown")
+                    )
+
                     # Validate it's a valid JSON Schema
                     try:
                         jsonschema.Draft7Validator.check_schema(req.output_schema)
@@ -137,29 +144,45 @@ async def start_scrape(req: ScrapeRequest):
                         schema_span.set_attribute("validation.json_schema", False)
                         schema_span.record_exception(e)
                         if schema_validation_counter:
-                            schema_validation_counter.add(1, {"status": "invalid_schema", "graph": req.graph})
+                            schema_validation_counter.add(
+                                1, {"status": "invalid_schema", "graph": req.graph}
+                            )
                         raise HTTPException(
-                            400, 
-                            detail=f"Invalid JSON Schema: {str(e)}. Please provide a valid JSON Schema object with proper 'type' and 'properties' fields."
+                            400,
+                            detail=f"Invalid JSON Schema: {str(e)}. Please provide a valid JSON Schema object with proper 'type' and 'properties' fields.",
                         )
-                    
+
                     # Test if it can be converted to Pydantic model
                     try:
                         test_model = create_model(req.output_schema)
-                        schema_span.set_attribute("validation.pydantic_conversion", True)
-                        print(f"✅ Schema validation passed, can create Pydantic model: {test_model}")
+                        schema_span.set_attribute(
+                            "validation.pydantic_conversion", True
+                        )
+                        print(
+                            f"✅ Schema validation passed, can create Pydantic model: {test_model}"
+                        )
                         if schema_validation_counter:
-                            schema_validation_counter.add(1, {"status": "valid", "graph": req.graph})
+                            schema_validation_counter.add(
+                                1, {"status": "valid", "graph": req.graph}
+                            )
                     except Exception as e:
-                        schema_span.set_attribute("validation.pydantic_conversion", False)
+                        schema_span.set_attribute(
+                            "validation.pydantic_conversion", False
+                        )
                         schema_span.record_exception(e)
                         if schema_validation_counter:
-                            schema_validation_counter.add(1, {"status": "pydantic_conversion_failed", "graph": req.graph})
+                            schema_validation_counter.add(
+                                1,
+                                {
+                                    "status": "pydantic_conversion_failed",
+                                    "graph": req.graph,
+                                },
+                            )
                         raise HTTPException(
                             400,
-                            detail=f"JSON Schema cannot be converted to Pydantic model: {str(e)}. Please ensure your schema uses supported JSON Schema features."
+                            detail=f"JSON Schema cannot be converted to Pydantic model: {str(e)}. Please ensure your schema uses supported JSON Schema features.",
                         )
-    
+
         # Validate inputs quickly
         if req.graph == "smart":
             if not (
@@ -173,7 +196,9 @@ async def start_scrape(req: ScrapeRequest):
                 )
         elif req.graph == "multi":
             if not (req.sources and len(req.sources) > 0):
-                raise HTTPException(400, detail="multi graph requires sources: [url, ...]")
+                raise HTTPException(
+                    400, detail="multi graph requires sources: [url, ...]"
+                )
         elif req.graph == "search":
             # SearchGraph consumes the user_prompt; optional explicit search_query for clarity
             pass
@@ -191,7 +216,7 @@ async def start_scrape(req: ScrapeRequest):
         }
 
         span.set_attribute("job.request_id", request_id)
-        
+
         async with JOBS_LOCK:
             JOBS[request_id] = job
             # Update queue size metric
@@ -201,7 +226,7 @@ async def start_scrape(req: ScrapeRequest):
         # Record request metrics
         if request_counter:
             request_counter.add(1, {"graph": req.graph, "status": "queued"})
-        
+
         # Run in background
         asyncio.create_task(_run_job(request_id, req))
 
@@ -236,35 +261,30 @@ async def smartscraper_poll_alias(request_id: str):
 async def _run_job(request_id: str, req: ScrapeRequest):
     tracer = get_tracer()
     job_start_time = time.time()
-    
+
     with tracer.start_as_current_span("scrape_job_execution") as job_span:
         job_span.set_attribute("job.request_id", request_id)
         job_span.set_attribute("job.graph", req.graph)
         job_span.set_attribute("job.has_schema", req.output_schema is not None)
-        
+
         async with JOBS_LOCK:
             JOBS[request_id]["status"] = "running"
             # Update queue metrics
             if queue_size_gauge:
                 queue_size_gauge.add(-1)  # Remove from queue
-        
+
         if request_counter:
             request_counter.add(1, {"graph": req.graph, "status": "running"})
 
         try:
             # Build graph_config from request with sensible defaults
             graph_config: Dict[str, Any] = {
-                "llm": {
-                    "model": "openai/gpt-4o-mini",
-                    "temperature": 0.0
-                },
+                "llm": {"model": "openai/gpt-4o-mini", "temperature": 0.0},
                 "headless": True,
                 "verbose": True,
-                "loader_kwargs": {
-                    "timeout": 30000
-                }
+                "loader_kwargs": {"timeout": 30000},
             }
-            
+
             # Override with user-provided values
             if req.llm:
                 graph_config["llm"].update(req.llm)
@@ -279,9 +299,10 @@ async def _run_job(request_id: str, req: ScrapeRequest):
             if req.additional_config:
                 graph_config.update(req.additional_config)
 
+            print("resulting graph config: ", json.dumps(graph_config, indent=True))
+
             # Build the appropriate graph
             with tracer.start_as_current_span("graph_construction") as graph_span:
-                graph_span.set_attribute("graph.type", req.graph)
                 graph = _build_graph(req, graph_config)
 
             # Run with simple timeout
@@ -289,41 +310,48 @@ async def _run_job(request_id: str, req: ScrapeRequest):
                 exec_span.set_attribute("execution.timeout_sec", req.timeout_sec or 180)
                 if req.website_url:
                     exec_span.set_attribute("execution.target_url", req.website_url)
-                
+
                 print(f"🚀 Running graph...")
                 execution_start = time.time()
                 result = await _run_with_timeout(graph, req.timeout_sec)
                 execution_duration = time.time() - execution_start
-                
-                exec_span.set_attribute("execution.duration_seconds", execution_duration)
+
+                exec_span.set_attribute(
+                    "execution.duration_seconds", execution_duration
+                )
                 exec_span.set_attribute("execution.result_type", str(type(result)))
-                
+
                 print(f"✅ Graph completed with result type: {type(result)}")
                 print(f"📄 Result: {result}")
-                
+
                 # Record execution metrics
                 if scraping_duration:
-                    scraping_duration.record(execution_duration, {"graph": req.graph, "status": "completed"})
+                    scraping_duration.record(
+                        execution_duration, {"graph": req.graph, "status": "completed"}
+                    )
 
             # If user provided a JSON Schema (dict with type/$schema), validate the result
             validation_errors: Optional[str] = None
-            if (
-                isinstance(req.output_schema, dict)
-                and ("type" in req.output_schema or "$schema" in req.output_schema)
+            if isinstance(req.output_schema, dict) and (
+                "type" in req.output_schema or "$schema" in req.output_schema
             ):
                 with tracer.start_as_current_span("result_validation") as val_span:
                     try:
                         jsonschema.validate(result, req.output_schema)  # type: ignore
                         val_span.set_attribute("validation.success", True)
                         if schema_validation_counter:
-                            schema_validation_counter.add(1, {"status": "result_valid", "graph": req.graph})
+                            schema_validation_counter.add(
+                                1, {"status": "result_valid", "graph": req.graph}
+                            )
                     except Exception as ve:
                         validation_errors = str(ve)
                         val_span.set_attribute("validation.success", False)
                         val_span.set_attribute("validation.error", str(ve))
                         val_span.record_exception(ve)
                         if schema_validation_counter:
-                            schema_validation_counter.add(1, {"status": "result_invalid", "graph": req.graph})
+                            schema_validation_counter.add(
+                                1, {"status": "result_invalid", "graph": req.graph}
+                            )
 
             # Calculate total job duration
             job_duration = time.time() - job_start_time
@@ -344,7 +372,9 @@ async def _run_job(request_id: str, req: ScrapeRequest):
 
             # Record success metrics
             if scraping_success_counter:
-                scraping_success_counter.add(1, {"graph": req.graph, "status": "completed"})
+                scraping_success_counter.add(
+                    1, {"graph": req.graph, "status": "completed"}
+                )
 
         except Exception as e:
             import traceback
@@ -353,51 +383,58 @@ async def _run_job(request_id: str, req: ScrapeRequest):
             print(
                 f"Job {request_id} failed with error: {error_details}"
             )  # Log to container output
-            
+
             # Record exception in span
             job_span.record_exception(e)
             job_span.set_attribute("job.status", "failed")
             job_span.set_attribute("job.error", str(e))
-            
+
             async with JOBS_LOCK:
                 JOBS[request_id]["status"] = "failed"
                 JOBS[request_id]["error"] = str(e)
 
             # Record failure metrics
             if scraping_success_counter:
-                scraping_success_counter.add(1, {"graph": req.graph, "status": "failed"})
+                scraping_success_counter.add(
+                    1, {"graph": req.graph, "status": "failed"}
+                )
             if scraping_duration:
                 job_duration = time.time() - job_start_time
-                scraping_duration.record(job_duration, {"graph": req.graph, "status": "failed"})
+                scraping_duration.record(
+                    job_duration, {"graph": req.graph, "status": "failed"}
+                )
 
 
 def _build_graph(req: ScrapeRequest, graph_config: Dict[str, Any]):
     tracer = get_tracer()
-    
+
     with tracer.start_as_current_span("pydantic_model_conversion") as conv_span:
         print(f"🏗️ Building {req.graph} graph with schema: {req.output_schema}")
-        print(f"🏗️ Schema will be passed to scrapegraph-ai: {req.output_schema is not None}")
-        
+        print(
+            f"🏗️ Schema will be passed to scrapegraph-ai: {req.output_schema is not None}"
+        )
+
         # Convert JSON Schema to Pydantic model if needed
         schema_for_scrapegraph = req.output_schema
-        if (
-            isinstance(req.output_schema, dict) 
-            and ("type" in req.output_schema or "$schema" in req.output_schema)
+        if isinstance(req.output_schema, dict) and (
+            "type" in req.output_schema or "$schema" in req.output_schema
         ):
             conv_span.set_attribute("conversion.needed", True)
-            conv_span.set_attribute("schema.type", req.output_schema.get("type", "unknown"))
-            
+            conv_span.set_attribute(
+                "schema.type", req.output_schema.get("type", "unknown")
+            )
+
             print(f"🔄 Converting JSON Schema to Pydantic model...")
             conversion_start = time.time()
             schema_for_scrapegraph = create_model(req.output_schema)
             conversion_duration = time.time() - conversion_start
-            
+
             conv_span.set_attribute("conversion.duration_seconds", conversion_duration)
             conv_span.set_attribute("conversion.success", True)
             print(f"✅ Converted to Pydantic model: {schema_for_scrapegraph}")
         else:
             conv_span.set_attribute("conversion.needed", False)
-    
+
     if req.graph == "smart":
         source: Optional[str] = req.website_url
         # Allow raw HTML by writing to a temp file if provided
@@ -436,7 +473,50 @@ def _build_graph(req: ScrapeRequest, graph_config: Dict[str, Any]):
     if req.graph == "search":
         # SearchGraph expects a prompt; pass optional schema to structure results
         prompt = req.user_prompt
-        return SearchGraph(prompt=prompt, config=graph_config, schema=schema_for_scrapegraph)
+        return SearchGraph(
+            prompt=prompt, config=graph_config, schema=schema_for_scrapegraph
+        )
+    if req.graph == "smart":
+        source: Optional[str] = req.website_url
+        # Allow raw HTML by writing to a temp file if provided
+        if req.website_html and not source:
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".html")
+            tmp.write(req.website_html.encode("utf-8"))
+            tmp.flush()
+            tmp.close()
+            source = tmp.name
+        if not source and req.sources:
+            source = req.sources[0]
+        if not source:
+            raise HTTPException(400, detail="smart graph requires a single source")
+        print(f"🎯 Creating SmartScraperGraph with:")
+        print(f"   prompt: {req.user_prompt}")
+        print(f"   source: {source}")
+        print(f"   schema: {schema_for_scrapegraph}")
+        return SmartScraperGraph(
+            prompt=req.user_prompt,
+            source=source,
+            config=graph_config,
+            schema=schema_for_scrapegraph,
+        )
+
+    if req.graph == "multi":
+        sources = req.sources or []
+        if not sources:
+            raise HTTPException(400, detail="multi graph requires sources list")
+        return SmartScraperMultiGraph(
+            prompt=req.user_prompt,
+            source=sources,
+            config=graph_config,
+            schema=schema_for_scrapegraph,
+        )
+
+    if req.graph == "search":
+        # SearchGraph expects a prompt; pass optional schema to structure results
+        prompt = req.user_prompt
+        return SearchGraph(
+            prompt=prompt, config=graph_config, schema=schema_for_scrapegraph
+        )
 
     raise HTTPException(400, detail=f"Unsupported graph: {req.graph}")
 

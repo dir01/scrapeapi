@@ -27,7 +27,8 @@ type ParsedJobsResponse struct {
 
 func main() {
 	// Create client
-	client := scrapeapi.NewClient("http://localhost:8080")
+	// client := scrapeapi.NewClient("http://scrapeapi.cluster-int.dir01.org")
+	client := scrapeapi.NewClient("http://127.0.0.1:8080")
 
 	// Example 1: Smart scraper with JSON Schema
 	schema := jsonschema.Reflect(&ParsedJobsResponse{})
@@ -35,9 +36,10 @@ func main() {
 	fmt.Printf("schema: %v", schema)
 
 	req := &scrapeapi.ScrapeRequest{
-		Graph:        "smart",
-		UserPrompt:   "This page contains a list of job offering ads. It is CRUCIAL that we get accurate information on all the jobs in the list. Please include ad title, company name, salary expectations, commitment, and geo restrictions",
-		WebsiteURL:   scrapeapi.String("https://weworkremotely.com/categories/remote-back-end-programming-jobs"),
+		Graph:      "smart",
+		UserPrompt: "This page contains a list of job offering ads. It is CRUCIAL that we get accurate information on all the jobs in the list. Please include ad title, company name, salary expectations, commitment, and geo restrictions",
+		WebsiteURL: scrapeapi.String("https://remotive.com/remote-jobs/software-dev"),
+		// WebsiteURL:   scrapeapi.String("https://weworkremotely.com/categories/remote-back-end-programming-jobs"),
 		OutputSchema: schema,
 		LLM: &scrapeapi.LLMConfig{
 			Model:       "openai/gpt-4o-mini",
@@ -45,8 +47,11 @@ func main() {
 		},
 		Headless:   true,
 		Verbose:    true,
-		TimeoutSec: 120,
+		TimeoutSec: 60 * 6,
 		MaxResults: scrapeapi.Int(20),
+		LoaderKwargs: map[string]interface{}{
+			"timeout": 1000 * 60 * 5,
+		},
 	}
 
 	fmt.Println("🚀 Starting scrape job...")

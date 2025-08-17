@@ -5,10 +5,10 @@ services:
       - "8080:8080"
     environment:
       # OpenTelemetry configuration
-      - OTEL_ENABLED=${OTEL_ENABLED:-true}
+      - OTEL_ENABLED=${OTEL_ENABLED:-false}
       - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-scrapeapi}
-      - OTEL_ENVIRONMENT=${OTEL_ENVIRONMENT:-production}
-      - OTEL_EXPORTER_TYPE=${OTEL_EXPORTER_TYPE:-console}
+      - OTEL_ENVIRONMENT=${OTEL_ENVIRONMENT:-dev}
+      - OTEL_EXPORTER_TYPE=${OTEL_EXPORTER_TYPE:-otlp}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       - OTEL_EXPORTER_JAEGER_ENDPOINT=${OTEL_EXPORTER_JAEGER_ENDPOINT:-}
       
