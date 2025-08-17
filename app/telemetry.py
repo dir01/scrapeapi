@@ -14,6 +14,7 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
 from opentelemetry.exporter.jaeger.thrift import JaegerExporter
+from opentelemetry.exporter.prometheus import PrometheusMetricReader
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.asyncio import AsyncioInstrumentor
@@ -51,7 +52,7 @@ def setup_tracing() -> None:
     provider = TracerProvider(resource=resource)
 
     # Configure exporters based on environment
-    exporter_type = os.getenv("OTEL_EXPORTER_TYPE", "").lower()
+    exporter_type = os.getenv("OTEL_TRACES_EXPORTER_TYPE", os.getenv("OTEL_EXPORTER_TYPE", "")).lower()
 
     if exporter_type == "otlp":
         endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
@@ -79,24 +80,30 @@ def setup_metrics() -> None:
     resource = get_resource()
 
     # Configure metric exporters
-    exporter_type = os.getenv("OTEL_EXPORTER_TYPE", "").lower()
+    exporter_type = os.getenv("OTEL_METRICS_EXPORTER_TYPE", "prometheus").lower()
 
     if exporter_type == "otlp":
         endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
         exporter = OTLPMetricExporter(endpoint=endpoint)
+        reader = PeriodicExportingMetricReader(
+            exporter=exporter,
+            export_interval_millis=int(os.getenv("OTEL_METRIC_EXPORT_INTERVAL", "10000")),
+        )
         logger.info(f"Using OTLP metric exporter with endpoint: {endpoint}")
+    elif exporter_type == "prometheus":
+        reader = PrometheusMetricReader()
+        logger.info("Using Prometheus metric exporter")
     elif exporter_type == "console":
         exporter = ConsoleMetricExporter()
+        reader = PeriodicExportingMetricReader(
+            exporter=exporter,
+            export_interval_millis=int(os.getenv("OTEL_METRIC_EXPORT_INTERVAL", "10000")),
+        )
         logger.info("Using Console exporter for metrics")
     else:
         # No exporter - metrics collection disabled
         logger.info("No metric exporter configured - metrics disabled")
         return
-
-    reader = PeriodicExportingMetricReader(
-        exporter=exporter,
-        export_interval_millis=int(os.getenv("OTEL_METRIC_EXPORT_INTERVAL", "10000")),
-    )
 
     provider = MeterProvider(resource=resource, metric_readers=[reader])
     metrics.set_meter_provider(provider)

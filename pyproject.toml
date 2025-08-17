@@ -36,6 +36,7 @@ dependencies = [
     "opentelemetry-instrumentation-asyncio",
     "opentelemetry-exporter-otlp",
     "opentelemetry-exporter-jaeger",
+    "opentelemetry-exporter-prometheus",
     "deprecated",
 ]
 

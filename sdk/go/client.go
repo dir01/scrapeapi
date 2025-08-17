@@ -13,6 +13,7 @@ import (
 type Client struct {
 	BaseURL    string
 	HTTPClient *http.Client
+	Headers    map[string]string
 }
 
 // NewClient creates a new ScrapeAPI client
@@ -20,7 +21,13 @@ func NewClient(baseURL string) *Client {
 	return &Client{
 		BaseURL:    baseURL,
 		HTTPClient: &http.Client{Timeout: 30 * time.Second},
+		Headers:    make(map[string]string),
 	}
+}
+
+// SetHeader sets a custom header for all requests
+func (c *Client) SetHeader(key, value string) {
+	c.Headers[key] = value
 }
 
 // ScrapeRequest represents a scraping request
@@ -74,6 +81,11 @@ func (c *Client) StartScrape(ctx context.Context, req *ScrapeRequest) (*ScrapeRe
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	
+	// Add custom headers
+	for key, value := range c.Headers {
+		httpReq.Header.Set(key, value)
+	}
 
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
@@ -98,6 +110,11 @@ func (c *Client) GetScrape(ctx context.Context, requestID string) (*ScrapeRespon
 	httpReq, err := http.NewRequestWithContext(ctx, "GET", c.BaseURL+"/v1/scrape/"+requestID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
+	}
+	
+	// Add custom headers
+	for key, value := range c.Headers {
+		httpReq.Header.Set(key, value)
 	}
 
 	resp, err := c.HTTPClient.Do(httpReq)

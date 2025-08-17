@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"time"
@@ -25,10 +27,28 @@ type ParsedJobsResponse struct {
 	Jobs []ParsedJob `json:"jobs" jsonschema:"jobs"`
 }
 
+// generateTraceID creates a random 32-character hex trace ID following W3C trace context format
+func generateTraceID() string {
+	bytes := make([]byte, 16) // 16 bytes = 32 hex characters
+	if _, err := rand.Read(bytes); err != nil {
+		log.Printf("Warning: failed to generate random trace ID: %v", err)
+		// Fallback to timestamp-based ID
+		return fmt.Sprintf("%032d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(bytes)
+}
+
 func main() {
+	// Generate a stable trace ID for this session - randomized only once at startup
+	traceID := generateTraceID()
+	fmt.Printf("🔍 Session trace ID: %s\n", traceID)
+
 	// Create client
-	// client := scrapeapi.NewClient("http://scrapeapi.cluster-int.dir01.org")
-	client := scrapeapi.NewClient("http://127.0.0.1:8080")
+	client := scrapeapi.NewClient("http://scrapeapi.cluster-int.dir01.org")
+	// client := scrapeapi.NewClient("http://127.0.0.1:8080")
+	
+	// Set trace ID header for all requests in this session
+	client.SetHeader("X-Trace-ID", traceID)
 
 	// Example 1: Smart scraper with JSON Schema
 	schema := jsonschema.Reflect(&ParsedJobsResponse{})

@@ -113,6 +113,13 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint."""
+    from prometheus_client import generate_latest
+    return generate_latest()
+
+
 @app.post("/v1/scrape", response_model=StartResponse)
 async def start_scrape(req: ScrapeRequest):
     tracer = get_tracer()
