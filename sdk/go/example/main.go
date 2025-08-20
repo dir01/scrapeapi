@@ -5,10 +5,12 @@ import (
 	"crypto/rand"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	scrapeapi "github.com/dir01/scrapeapi/sdk/go"
 	jsonschema "github.com/invopop/jsonschema"
+	"github.com/joho/godotenv"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/trace"
@@ -31,6 +33,12 @@ type ParsedJobsResponse struct {
 }
 
 func main() {
+	// Load environment variables
+	err := godotenv.Load()
+	if err != nil {
+		log.Printf("Warning: Error loading .env file: %v", err)
+	}
+
 	// Initialize OpenTelemetry with custom ID generator
 	cleanup := initOpenTelemetry()
 	defer cleanup()
@@ -48,8 +56,17 @@ func main() {
 	fmt.Printf("🔍 EXAMPLE: Root span sampled: %v\n", rootSpan.SpanContext().IsSampled())
 
 	// Create client (now with automatic OpenTelemetry instrumentation)
-	// client := scrapeapi.NewClient("http://scrapeapi.cluster-int.dir01.org")
-	client := scrapeapi.NewClient("http://127.0.0.1:8080")
+	baseURL := os.Getenv("SCRAPEAPI_BASE_URL")
+	if baseURL == "" {
+		baseURL = "http://127.0.0.1:8080" // fallback
+	}
+
+	targetURL := os.Getenv("SCRAPE_TARGET_URL")
+	if targetURL == "" {
+		targetURL = "https://remotive.com/remote-jobs/software-dev" // fallback
+	}
+
+	client := scrapeapi.NewClient(baseURL)
 
 	// Example 1: Smart scraper with JSON Schema
 	schema := jsonschema.Reflect(&ParsedJobsResponse{})
@@ -57,10 +74,9 @@ func main() {
 	fmt.Printf("schema: %v", schema)
 
 	req := &scrapeapi.ScrapeRequest{
-		Graph:      "smart",
-		UserPrompt: "This page contains a list of job offering ads. It is CRUCIAL that we get accurate information on all the jobs in the list. Please include ad title, company name, salary expectations, commitment, and geo restrictions",
-		WebsiteURL: scrapeapi.String("https://remotive.com/remote-jobs/software-dev"),
-		// WebsiteURL:   scrapeapi.String("https://weworkremotely.com/categories/remote-back-end-programming-jobs"),
+		Graph:        "smart",
+		UserPrompt:   "This page contains a list of job offering ads. It is CRUCIAL that we get accurate information on all the jobs in the list. Please include ad title, company name, salary expectations, commitment, and geo restrictions",
+		WebsiteURL:   scrapeapi.String(targetURL),
 		OutputSchema: schema,
 		LLM: &scrapeapi.LLMConfig{
 			Model:       "openai/gpt-4o-mini",
@@ -161,7 +177,7 @@ func initOpenTelemetry() func() {
 
 	// Set the global trace provider
 	otel.SetTracerProvider(tp)
-	
+
 	// Set up propagation
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 
